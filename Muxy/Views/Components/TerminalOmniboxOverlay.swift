@@ -7,6 +7,7 @@ struct TerminalOmniboxOverlay: View {
     let openTabs: [OpenTerminalTabItem]
     let commandShortcuts: [CommandShortcut]
     let extensionCommands: [ExtensionPaletteItem]
+    let sshHosts: [SSHHostOmniboxItem]
     let activeProjectID: UUID?
     let activeWorktreeID: UUID?
     let commandProjectIDs: Set<UUID>
@@ -36,6 +37,7 @@ struct TerminalOmniboxOverlay: View {
                 openTabs: openTabs,
                 commandShortcuts: commandShortcuts,
                 extensionCommands: extensionCommands,
+                sshHosts: sshHosts,
                 activeProjectID: activeProjectID,
                 activeWorktreeID: activeWorktreeID,
                 commandProjectIDs: commandProjectIDs
@@ -241,7 +243,8 @@ struct TerminalOmniboxOverlay: View {
         case .commandShortcut:
             onSelect(item, activeProjectID, activeWorktreeID)
         case .openTab,
-             .extensionCommand:
+             .extensionCommand,
+             .sshHost:
             onSelect(item, nil, nil)
         }
     }
