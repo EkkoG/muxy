@@ -3,6 +3,17 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "RemoteHostStore")
 
+enum RemoteHostStoreError: LocalizedError {
+    case unsupportedImportFormat
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedImportFormat:
+            return "The imported file format is unsupported."
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class RemoteHostStore {
@@ -17,6 +28,11 @@ final class RemoteHostStore {
 
     init() {
         persistence = CodableFileStore(fileURL: Self.storageURL, options: .prettySorted)
+        load()
+    }
+
+    init(storageURL: URL) {
+        self.persistence = CodableFileStore(fileURL: storageURL, options: .prettySorted)
         load()
     }
 
@@ -64,34 +80,55 @@ final class RemoteHostStore {
     }
 
     func importFromSSHConfig() -> [RemoteHost] {
-        let parsed = SSHConfigParser.parse()
-        var imported: [RemoteHost] = []
-
-        for entry in parsed {
-            guard !hosts.contains(where: { $0.host == entry.hostName && $0.user == (entry.user ?? NSUserName()) }) else {
-                continue
-            }
-
-            let host = RemoteHost(
-                name: entry.name,
-                host: entry.hostName,
-                port: entry.port,
-                user: entry.user ?? NSUserName(),
-                identityFile: entry.identityFile
+        let parsed = discoverSSHConfigHosts()
+        let hosts = parsed.map {
+            RemoteHost(
+                name: $0.name,
+                host: $0.hostName,
+                port: $0.port,
+                user: $0.user ?? NSUserName(),
+                identityFile: $0.identityFile
             )
-            hosts.append(host)
-            imported.append(host)
         }
-
-        if !imported.isEmpty {
-            save()
-        }
-
-        return imported
+        return import(hosts)
     }
 
     func discoverSSHConfigHosts() -> [SSHConfigParser.ParsedHost] {
         SSHConfigParser.parse()
+    }
+
+    func exportData() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(hosts)
+    }
+
+    func export(to url: URL) throws {
+        let data = try exportData()
+        try data.write(to: url, options: .atomic)
+    }
+
+    func importFromJSON(_ url: URL) throws -> [RemoteHost] {
+        let data = try Data(contentsOf: url)
+        return try importFromData(data)
+    }
+
+    func importFromData(_ data: Data) throws -> [RemoteHost] {
+        let decoder = JSONDecoder()
+        do {
+            let hosts = try decoder.decode([RemoteHost].self, from: data)
+            return import(hosts)
+        } catch {
+        do {
+            let payload = try decoder.decode([String: [RemoteHost]].self, from: data)
+            guard let hosts = payload["hosts"] else {
+                throw RemoteHostStoreError.unsupportedImportFormat
+            }
+            return import(hosts)
+        } catch {
+            throw RemoteHostStoreError.unsupportedImportFormat
+        }
+    }
     }
 
     func ensureControlDir() {
@@ -106,6 +143,25 @@ final class RemoteHostStore {
             )
         } catch {
             logger.error("Failed to create control dir: \(error)")
+        }
+    }
+
+    private func import(_ hosts: [RemoteHost]) -> [RemoteHost] {
+        var imported: [RemoteHost] = []
+        for host in hosts where !contains(host) {
+            self.hosts.append(host)
+            imported.append(host)
+        }
+        if !imported.isEmpty {
+            save()
+        }
+        return imported
+    }
+
+    private func contains(_ host: RemoteHost) -> Bool {
+        self.hosts.contains {
+            $0.host == host.host &&
+            $0.user == host.user
         }
     }
 }

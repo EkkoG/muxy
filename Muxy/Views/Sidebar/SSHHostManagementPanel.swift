@@ -47,6 +47,12 @@ struct SSHHostManagementPanel: View {
                 Button(action: { isImportingConfig = true }, label: {
                     Label("Import from SSH Config", systemImage: "doc.text")
                 })
+                Button(action: { importHostsFromJSON() }, label: {
+                    Label("Import JSON", systemImage: "arrow.down.doc")
+                })
+                Button(action: { exportHosts() }, label: {
+                    Label("Export JSON", systemImage: "arrow.up.doc")
+                })
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -141,5 +147,46 @@ struct SSHHostManagementPanel: View {
 
     private func deleteHost(_ host: RemoteHost) {
         RemoteHostStore.shared.remove(id: host.id)
+    }
+
+    private func importHostsFromJSON() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedFileTypes = ["json"]
+        if panel.runModal() != .OK {
+            return
+        }
+        guard let url = panel.url else { return }
+        do {
+            _ = try RemoteHostStore.shared.importFromJSON(url)
+        } catch {
+            showAlert(message: error.localizedDescription)
+        }
+    }
+
+    private func exportHosts() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "ssh-hosts.json"
+        panel.allowedFileTypes = ["json"]
+        if panel.runModal() != .OK {
+            return
+        }
+        guard let url = panel.url else { return }
+        do {
+            try RemoteHostStore.shared.export(to: url)
+        } catch {
+            showAlert(message: error.localizedDescription)
+        }
+    }
+
+    private func showAlert(message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Unable to Import or Export SSH Hosts"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }
