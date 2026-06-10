@@ -12,6 +12,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   validate:
     runs-on: macos-26
@@ -89,3 +92,35 @@ jobs:
         with:
           name: dmg-${{ matrix.arch }}
           path: build/Muxy-${{ needs.validate.outputs.version }}-${{ matrix.arch }}.dmg
+
+  publish:
+    needs: [validate, build]
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dmg-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          BETA_TAG: ${{ inputs.from_beta_tag }}
+        run: |
+          TAG="v${VERSION}"
+          TARGET="$(git rev-list -n 1 "$BETA_TAG")"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.dmg --clobber
+            exit 0
+          fi
+          gh release create "$TAG" dist/*.dmg \
+            --target "$TARGET" \
+            --title "Muxy ${VERSION}" \
+            --notes "Muxy ${VERSION}"

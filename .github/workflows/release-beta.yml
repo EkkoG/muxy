@@ -3,6 +3,9 @@ name: Release (Beta)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: release-beta
   cancel-in-progress: false
@@ -76,3 +79,29 @@ jobs:
         with:
           name: dmg-${{ matrix.arch }}
           path: build/Muxy-${{ needs.validate.outputs.version }}-${{ matrix.arch }}.dmg
+
+  publish:
+    needs: [validate, build]
+    runs-on: macos-26
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dmg-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          TAG="v${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.dmg --clobber
+            exit 0
+          fi
+          gh release create "$TAG" dist/*.dmg \
+            --prerelease \
+            --title "Muxy ${VERSION}" \
+            --notes "Muxy ${VERSION}"
