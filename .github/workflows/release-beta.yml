@@ -84,6 +84,10 @@ jobs:
     needs: [validate, build]
     runs-on: macos-26
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
