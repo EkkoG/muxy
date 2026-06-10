@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-FORK_REPO="muxy-app/ghostty"
+FORK_REPO="EkkoG/ghostty"
 XCFRAMEWORK_DIR="$PROJECT_ROOT/GhosttyKit.xcframework"
 RESOURCES_DIR="$PROJECT_ROOT/Muxy/Resources/ghostty"
 TERMINFO_DIR="$PROJECT_ROOT/Muxy/Resources/terminfo"
