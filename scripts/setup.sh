@@ -3,7 +3,17 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-FORK_REPO="EkkoG/ghostty"
+OWNER="${GITHUB_REPOSITORY_OWNER:-}"
+if [[ -z "$OWNER" ]]; then
+  OWNER="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null \
+    | sed -E 's#(https://github.com/|git@github.com:)##; s#\\.git$##' \
+    | awk -F/ '{print $1}')"
+fi
+if [[ -z "$OWNER" ]]; then
+  echo "Error: unable to determine repository owner; set GITHUB_REPOSITORY_OWNER or FORK_REPO"
+  exit 1
+fi
+FORK_REPO="${FORK_REPO:-$OWNER/ghostty}"
 XCFRAMEWORK_DIR="$PROJECT_ROOT/GhosttyKit.xcframework"
 RESOURCES_DIR="$PROJECT_ROOT/Muxy/Resources/ghostty"
 TERMINFO_DIR="$PROJECT_ROOT/Muxy/Resources/terminfo"

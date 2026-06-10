@@ -4,6 +4,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+REPO_PATH="${GITHUB_REPOSITORY:-}"
+if [[ -z "$REPO_PATH" ]]; then
+  REPO_PATH="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null \
+    | sed -E 's#(https://github.com/|git@github.com:)##; s#\\.git$##' \
+    | awk -F/ '{print $1 "/" $2}')"
+fi
+if [[ -z "$REPO_PATH" ]]; then
+  echo "Error: repository path could not be determined (set GITHUB_REPOSITORY or configure origin remote)"
+  exit 1
+fi
+
 if [[ $# -lt 3 ]]; then
   echo "Usage: $0 <dmg> <tag> <build-number> [output-path]" >&2
   echo "Env: SPARKLE_PRIVATE_KEY (required), CHANNEL (stable|beta, default stable)," >&2
@@ -28,7 +39,7 @@ if [[ ! -x "$SIGN_UPDATE" ]]; then
   exit 1
 fi
 
-DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/muxy-app/muxy/releases/download/$TAG/}"
+DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/${REPO_PATH}/releases/download/$TAG/}"
 
 VERSION="${TAG#v}"
 SIG=$(echo "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - -p "$DMG")
@@ -51,7 +62,7 @@ cat > "$NEW_ITEM_FILE" << EOF
       <sparkle:version>${BUILD_NUMBER}</sparkle:version>
       <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:fullReleaseNotesLink>https://github.com/muxy-app/muxy/releases/tag/${TAG}</sparkle:fullReleaseNotesLink>
+      <sparkle:fullReleaseNotesLink>https://github.com/${REPO_PATH}/releases/tag/${TAG}</sparkle:fullReleaseNotesLink>
       <enclosure url="${DOWNLOAD_URL_PREFIX}${FILENAME}" sparkle:edSignature="${SIG}" length="${SIZE}" type="application/octet-stream" />
     </item>
 EOF
@@ -87,7 +98,7 @@ else
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>Muxy Updates (${CHANNEL})</title>
-    <link>https://github.com/muxy-app/muxy</link>
+    <link>https://github.com/${REPO_PATH}</link>
     <description>Updates for Muxy (${CHANNEL} channel)</description>
     <language>en</language>
 ${NEW_ITEM}

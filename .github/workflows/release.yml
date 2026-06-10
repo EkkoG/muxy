@@ -75,7 +75,7 @@ jobs:
 
       - name: Setup GhosttyKit
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           chmod +x scripts/setup.sh
           scripts/setup.sh
@@ -143,7 +143,7 @@ jobs:
             --version "${{ needs.validate.outputs.version }}" \
             --sign-identity "${{ steps.identity.outputs.name }}" \
             --sparkle-public-key "${{ steps.sparkle.outputs.public_key }}" \
-            --sparkle-feed-url "https://github.com/muxy-app/muxy/releases/latest/download/appcast-${{ matrix.arch }}.xml"
+            --sparkle-feed-url "https://github.com/${{ github.repository }}/releases/latest/download/appcast-${{ matrix.arch }}.xml"
 
       - name: Upload dSYM to Sentry
         env:
@@ -218,7 +218,7 @@ jobs:
         run: |
           mkdir -p prev
           for ARCH in arm64 x86_64; do
-            URL="https://github.com/muxy-app/muxy/releases/latest/download/appcast-${ARCH}.xml"
+            URL="https://github.com/${{ github.repository }}/releases/latest/download/appcast-${ARCH}.xml"
             if curl -fsSL "$URL" -o "prev/appcast-${ARCH}.xml"; then
               echo "Fetched previous stable appcast for $ARCH"
             else
@@ -356,11 +356,13 @@ jobs:
       - name: Update Homebrew tap
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAP_OWNER: ${{ github.repository_owner }}
           VERSION: ${{ needs.validate.outputs.version }}
           SHA256_ARM64: ${{ steps.sha256.outputs.arm64 }}
           SHA256_X86_64: ${{ steps.sha256.outputs.x86_64 }}
         run: |
-          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/muxy-app/homebrew-tap.git tap
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${TAP_OWNER}/homebrew-tap.git tap
           mkdir -p tap/Casks
           cat > tap/Casks/muxy.rb <<EOF
           cask "muxy" do
@@ -368,17 +370,17 @@ jobs:
 
             on_arm do
               sha256 "${SHA256_ARM64}"
-              url "https://github.com/muxy-app/muxy/releases/download/v#{version}/Muxy-#{version}-arm64.dmg"
+              url "https://github.com/${REPO}/releases/download/v#{version}/Muxy-#{version}-arm64.dmg"
             end
 
             on_intel do
               sha256 "${SHA256_X86_64}"
-              url "https://github.com/muxy-app/muxy/releases/download/v#{version}/Muxy-#{version}-x86_64.dmg"
+              url "https://github.com/${REPO}/releases/download/v#{version}/Muxy-#{version}-x86_64.dmg"
             end
 
             name "Muxy"
             desc "Terminal multiplexer for macOS"
-            homepage "https://github.com/muxy-app/muxy"
+            homepage "https://github.com/${REPO}"
 
             livecheck do
               url :url
