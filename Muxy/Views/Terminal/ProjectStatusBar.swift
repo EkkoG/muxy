@@ -13,6 +13,7 @@ struct ProjectStatusBar: View {
     let richInputVisible: Bool
     @Binding var richInputFontSize: Double
     @Binding var extensionOutputVisible: Bool
+    var onToggleSFTPPanel: (() -> Void)? = nil
     var onTriggerExtensionCommand: ((ExtensionStore.StatusBarItemBinding) -> Void)?
     @Environment(ExtensionStore.self) private var extensionStore
     @State private var popoverHost = PopoverHost.shared
@@ -75,6 +76,10 @@ struct ProjectStatusBar: View {
                 richInputToggleButton
                 separator
                 voiceRecordingButton
+            }
+            if onToggleSFTPPanel != nil {
+                separator
+                sftpButton
             }
             if showResourceUsage {
                 separator
@@ -216,7 +221,19 @@ struct ProjectStatusBar: View {
         .buttonStyle(RichInputToolbarButtonStyle())
         .disabled(!isInteractive)
         .accessibilityLabel("Start Voice Recording")
-        .help("Start Voice Recording")
+            .help("Start Voice Recording")
+    }
+
+    private var sftpButton: some View {
+        Button(action: onToggleSFTPPanel ?? {}) {
+            Image(systemName: "externaldrive.connected.to.line.below")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isInteractive)
+        .accessibilityLabel("SFTP")
+        .help("Toggle SFTP panel")
     }
 
     private var zoomControls: some View {

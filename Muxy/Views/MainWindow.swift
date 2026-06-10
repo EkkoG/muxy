@@ -77,6 +77,10 @@ struct MainWindow: View {
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
     @AppStorage("muxy.extensionConsoleHeight") private var extensionConsoleHeight: Double = PanelLayoutMetrics.consoleDefaultHeight
+    @AppStorage("muxy.sftpPanelWidth") private var sftpPanelWidth: Double = PanelLayoutMetrics.sftpDefaultWidth
+    @AppStorage("muxy.sftpPanelHeight") private var sftpPanelHeight: Double = PanelLayoutMetrics.sftpDefaultHeight
+    @AppStorage("muxy.sftpPanelFloating") private var sftpPanelFloating = true
+    @AppStorage("muxy.sftpPanelPosition") private var sftpPanelPosition: PanelPosition = .right
     @State private var extensionOutputSelected: String?
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
@@ -357,6 +361,9 @@ struct MainWindow: View {
                     richInputVisible: richInputPanelVisible,
                     richInputFontSize: $richInputFontSize,
                     extensionOutputVisible: extensionConsoleBinding,
+                    onToggleSFTPPanel: activeTerminalPane?.nativeSSHConfiguration == nil
+                        ? nil
+                        : { toggleSFTPPanel() },
                     onTriggerExtensionCommand: { binding in
                         ExtensionStore.shared.triggerCommand(
                             ExtensionStore.CommandInvocation(
@@ -902,12 +909,17 @@ struct MainWindow: View {
 
     var richInputPanelVisible: Bool { panelHost.isOpen(BuiltinPanel.richInput) }
     var showExtensionOutput: Bool { panelHost.isOpen(BuiltinPanel.extensionConsole) }
+    private var sftpPanelVisible: Bool { panelHost.isOpen(BuiltinPanel.sftp) }
 
     private var extensionConsoleBinding: Binding<Bool> {
         Binding(
             get: { panelHost.isOpen(BuiltinPanel.extensionConsole) },
             set: { _ in panelHost.toggle(BuiltinPanel.extensionConsole, at: .bottom, mode: .floating) }
         )
+    }
+
+    private var sftpPanelMode: PanelMode {
+        sftpPanelFloating ? .floating : .pinned
     }
 
     @ViewBuilder
@@ -932,6 +944,8 @@ struct MainWindow: View {
             richInputPanelBody(position: position, mode: mode)
         case BuiltinPanel.extensionConsole:
             extensionConsolePanelBody(position: position, mode: mode)
+        case BuiltinPanel.sftp:
+            sftpPanelBody(position: position, mode: mode)
         default:
             extensionPanelBody(panelID: panelID, position: position, mode: mode)
         }
@@ -999,6 +1013,28 @@ struct MainWindow: View {
             position: position,
             size: $extensionConsoleHeight,
             range: PanelLayoutMetrics.consoleHeightRange
+        ))
+    }
+
+    private func sftpPanelBody(position: PanelPosition, mode: PanelMode) -> some View {
+        PanelContainer(
+            chrome: PanelChrome(
+                iconSymbol: "folder",
+                title: "SFTP"
+            ),
+            mode: mode,
+            position: position,
+            onClose: { panelHost.close(BuiltinPanel.sftp) },
+            onTogglePin: { toggleSFTPPanelFloating() },
+            onTogglePosition: { toggleSFTPPanelPosition() },
+            content: { SFTPPanel() }
+        )
+        .modifier(PanelFrame(
+            position: position,
+            size: position == .bottom ? $sftpPanelHeight : $sftpPanelWidth,
+            range: position == .bottom
+                ? PanelLayoutMetrics.sftpHeightRange
+                : PanelLayoutMetrics.sftpWidthRange
         ))
     }
 
@@ -1129,6 +1165,27 @@ struct MainWindow: View {
         DispatchQueue.main.async {
             view.window?.makeFirstResponder(view)
         }
+    }
+
+    private func toggleSFTPPanel() {
+        guard activeTerminalPane?.nativeSSHConfiguration != nil else { return }
+        guard !sftpPanelVisible else {
+            panelHost.close(BuiltinPanel.sftp)
+            return
+        }
+        panelHost.open(BuiltinPanel.sftp, at: sftpPanelPosition, mode: sftpPanelMode)
+    }
+
+    private func toggleSFTPPanelFloating() {
+        sftpPanelFloating.toggle()
+        guard sftpPanelVisible else { return }
+        panelHost.setMode(sftpPanelMode, for: BuiltinPanel.sftp)
+    }
+
+    private func toggleSFTPPanelPosition() {
+        sftpPanelPosition = sftpPanelPosition.opposite
+        guard sftpPanelVisible else { return }
+        panelHost.move(BuiltinPanel.sftp, to: sftpPanelPosition)
     }
 
     private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool, selectedText: String?) {

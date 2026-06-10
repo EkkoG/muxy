@@ -25,7 +25,10 @@ if [ -z "$DBG_PID" ]; then
 fi
 
 echo "==> Debug PID: $DBG_PID"
-echo "==> SSH logs (Ctrl+C to stop):"
-log stream --predicate 'subsystem == "app.muxy" AND category == "SSHConnection"' --level debug --process "$DBG_PID"
+echo "==> Muxy logs (Ctrl+C to stop):"
+log stream \
+  --predicate '(subsystem == "app.muxy" AND (category == "SSHConnection" OR category == "SFTPPanel"))' \
+  --level debug \
+  --process "$DBG_PID"
 
 kill $MUXYPID 2>/dev/null

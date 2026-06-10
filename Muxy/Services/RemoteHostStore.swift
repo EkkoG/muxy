@@ -90,7 +90,7 @@ final class RemoteHostStore {
                 identityFile: $0.identityFile
             )
         }
-        return import(hosts)
+        return importHosts(hosts)
     }
 
     func discoverSSHConfigHosts() -> [SSHConfigParser.ParsedHost] {
@@ -117,14 +117,14 @@ final class RemoteHostStore {
         let decoder = JSONDecoder()
         do {
             let hosts = try decoder.decode([RemoteHost].self, from: data)
-            return import(hosts)
+            return importHosts(hosts)
         } catch {
         do {
             let payload = try decoder.decode([String: [RemoteHost]].self, from: data)
             guard let hosts = payload["hosts"] else {
                 throw RemoteHostStoreError.unsupportedImportFormat
             }
-            return import(hosts)
+            return importHosts(hosts)
         } catch {
             throw RemoteHostStoreError.unsupportedImportFormat
         }
@@ -146,7 +146,7 @@ final class RemoteHostStore {
         }
     }
 
-    private func import(_ hosts: [RemoteHost]) -> [RemoteHost] {
+    private func importHosts(_ hosts: [RemoteHost]) -> [RemoteHost] {
         var imported: [RemoteHost] = []
         for host in hosts where !contains(host) {
             self.hosts.append(host)

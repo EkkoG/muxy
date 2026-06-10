@@ -3,6 +3,7 @@ import SwiftUI
 enum BuiltinPanel {
     static let richInput = "builtin:richInput"
     static let extensionConsole = "builtin:extensionConsole"
+    static let sftp = "builtin:sftp"
 }
 
 enum PanelLayoutMetrics {
@@ -18,6 +19,11 @@ enum PanelLayoutMetrics {
     static let extensionDefaultWidth: Double = 360
     static let extensionHeightRange: ClosedRange<CGFloat> = 160 ... 600
     static let extensionDefaultHeight: Double = 240
+
+    static let sftpWidthRange: ClosedRange<CGFloat> = 320 ... 900
+    static let sftpDefaultWidth: Double = 460
+    static let sftpHeightRange: ClosedRange<CGFloat> = 200 ... 720
+    static let sftpDefaultHeight: Double = 360
 }
 
 struct PanelFrame: ViewModifier {
