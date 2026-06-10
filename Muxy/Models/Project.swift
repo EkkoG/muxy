@@ -30,6 +30,7 @@ struct Project: Identifiable, Codable, Hashable {
         logo = try container.decodeIfPresent(String.self, forKey: .logo)
         iconColor = try container.decodeIfPresent(String.self, forKey: .iconColor)
         preferredWorktreeParentPath = try container.decodeIfPresent(String.self, forKey: .preferredWorktreeParentPath)
+        worktreesEnabled = try container.decodeIfPresent(Bool.self, forKey: .worktreesEnabled) ?? false
     }
 
     init(id: UUID = UUID(), name: String, path: String, sortOrder: Int = 0) {
@@ -46,20 +47,6 @@ struct Project: Identifiable, Codable, Hashable {
         self.worktreesEnabled = false
     }
 
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        name = try container.decode(String.self, forKey: .name)
-        path = try container.decode(String.self, forKey: .path)
-        sortOrder = try container.decode(Int.self, forKey: .sortOrder)
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
-        icon = try container.decodeIfPresent(String.self, forKey: .icon)
-        logo = try container.decodeIfPresent(String.self, forKey: .logo)
-        iconColor = try container.decodeIfPresent(String.self, forKey: .iconColor)
-        preferredWorktreeParentPath = try container.decodeIfPresent(String.self, forKey: .preferredWorktreeParentPath)
-        worktreesEnabled = try container.decodeIfPresent(Bool.self, forKey: .worktreesEnabled) ?? false
-    }
-
     init(id: UUID = UUID(), name: String, remoteConfig: RemoteProjectConfig) {
         self.id = id
         self.name = name
@@ -71,6 +58,7 @@ struct Project: Identifiable, Codable, Hashable {
         self.logo = nil
         self.iconColor = remoteConfig.iconColor
         self.preferredWorktreeParentPath = nil
+        self.worktreesEnabled = false
     }
 
     var isRemote: Bool {

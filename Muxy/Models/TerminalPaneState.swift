@@ -83,7 +83,7 @@ final class TerminalPaneState: Identifiable {
         if nativeSSHConfiguration != nil {
             return TerminalPaneLaunch(command: nil, interactive: false, closesOnCommandExit: false)
         }
-        TerminalPaneLaunch(
+        return TerminalPaneLaunch(
             command: startupCommand,
             interactive: startupCommandInteractive,
             closesOnCommandExit: closesOnStartupCommandExit

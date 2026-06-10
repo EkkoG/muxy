@@ -4,7 +4,8 @@ import Foundation
 enum TerminalSurfaceMaterializer {
     static func materialize(paneID: UUID, appState: AppState) -> GhosttyTerminalNSView? {
         if let view = TerminalViewRegistry.shared.existingView(for: paneID) {
-            return view.ensureLiveSurfaceForExternalIO() ? view : nil
+            _ = view.ensureLiveSurfaceForExternalIO()
+            return view
         }
         guard let location = appState.locatePane(paneID: paneID) else { return nil }
         let pane = location.pane
@@ -20,6 +21,6 @@ enum TerminalSurfaceMaterializer {
             view.envVars = TerminalEnvVarBuilder.build(paneID: paneID, worktreeKey: location.worktreeKey)
         }
         view.materializeHeadless()
-        return view.surface != nil ? view : nil
+        return view
     }
 }

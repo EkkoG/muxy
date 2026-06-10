@@ -282,18 +282,7 @@ enum TerminalOmniboxItemResolver {
             let shortcuts = context.commandShortcuts
                 .filter { !$0.trimmedCommand.isEmpty }
                 .map(TerminalOmniboxItem.commandShortcut)
-<<<<<<< HEAD
-            return shortcuts + extensionItems
-=======
             return sshItems + shortcuts + extensionItems
-        case .history:
-            guard let activeProjectID = context.activeProjectID,
-                  let activeWorktreeID = context.activeWorktreeID
-            else { return [] }
-            return context.closedTabs
-                .filter { $0.projectID == activeProjectID && $0.worktreeID == activeWorktreeID }
-                .map(TerminalOmniboxItem.closedTab)
->>>>>>> f6ef2f3 (Add SSH remote project management with Keychain auth)
         }
     }
 }

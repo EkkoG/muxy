@@ -76,7 +76,7 @@ enum NativeSSHKnownHosts {
     }
 
     private static func hashedHostMatch(_ pattern: String, candidate: String) -> Bool {
-        let components = pattern.split(separator: "|").map(String.init)
+        let components = pattern.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard components.count == 4, components[0].isEmpty, components[1] == "1" else { return false }
 
         guard let salt = Data(base64Encoded: components[2]),

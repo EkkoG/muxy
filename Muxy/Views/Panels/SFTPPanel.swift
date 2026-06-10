@@ -660,32 +660,74 @@ struct SFTPPanel: View {
         var accepted = false
         Self.logger.debug("downloadDroppedToLocal count=\(providers.count, privacy: .public)")
         for provider in providers {
-            let lock = NSLock()
-            var remoteHandled = false
-            var localFileHandled = false
+            final class SendableItemProvider: @unchecked Sendable {
+                let provider: NSItemProvider
 
-            func markRemoteHandled() -> Bool {
-                lock.lock()
-                defer { lock.unlock() }
-                if remoteHandled || localFileHandled {
-                    return false
+                init(_ provider: NSItemProvider) {
+                    self.provider = provider
                 }
-                remoteHandled = true
-                return true
             }
 
-            func markLocalFileHandled() -> Bool {
-                lock.lock()
-                defer { lock.unlock() }
-                if remoteHandled || localFileHandled {
-                    return false
+            final class DropResolutionGate: @unchecked Sendable {
+                private let lock = NSLock()
+                private var remoteHandled = false
+                private var localFileHandled = false
+                private var remotePayloadHandled = false
+                private var pendingRemotePayloadChecks = 0
+
+                func resetRemotePayloadChecks(count: Int) {
+                    lock.lock()
+                    pendingRemotePayloadChecks = count
+                    remotePayloadHandled = false
+                    lock.unlock()
                 }
-                localFileHandled = true
-                return true
+
+                func markRemoteHandled() -> Bool {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if remoteHandled || localFileHandled {
+                        return false
+                    }
+                    remoteHandled = true
+                    return true
+                }
+
+                func markLocalFileHandled() -> Bool {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if remoteHandled || localFileHandled {
+                        return false
+                    }
+                    localFileHandled = true
+                    return true
+                }
+
+                func markRemotePayloadHandled() -> Bool {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if remotePayloadHandled || remoteHandled || localFileHandled {
+                        return false
+                    }
+                    remotePayloadHandled = true
+                    return true
+                }
+
+                func finishRemotePayloadCheck() -> Bool {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if remotePayloadHandled {
+                        return false
+                    }
+                    pendingRemotePayloadChecks -= 1
+                    return pendingRemotePayloadChecks <= 0
+                }
             }
 
-            func copyLocalFile(_ sourceURL: URL, preferredName: String?, from sourceDescription: String) {
-                if !markLocalFileHandled() {
+            let sendableProvider = SendableItemProvider(provider)
+            let resolutionGate = DropResolutionGate()
+
+            @Sendable func copyLocalFile(_ sourceURL: URL, preferredName: String?, from sourceDescription: String) {
+                if !resolutionGate.markLocalFileHandled() {
                     return
                 }
                 if self.isLikelyPlaceholderFileURL(sourceURL) {
@@ -744,29 +786,28 @@ struct SFTPPanel: View {
                 UTType.text.identifier
             ]
 
-            func requestRemotePayloadDownload(preferredName: String?, fallback: @escaping () -> Void) {
+            @Sendable func requestRemotePayloadDownload(
+                preferredName: String?,
+                fallback: @MainActor @escaping @Sendable () -> Void
+            ) {
                 let payloadTypes = remotePayloadTypeIdentifiers
                 Self.logger.debug("requestRemotePayloadDownload start remotePayloadTypes=\(payloadTypes.count, privacy: .public) path=\(localPath, privacy: .public)")
                 if payloadTypes.isEmpty {
-                    fallback()
+                    Task { @MainActor in
+                        fallback()
+                    }
                     return
                 }
-                var pending = payloadTypes.count
-                var didHandle = false
-                let fallbackLock = NSLock()
-                func finishRemoteChecks() {
-                    fallbackLock.lock()
-                    defer { fallbackLock.unlock() }
-                    if didHandle {
-                        return
-                    }
-                    pending -= 1
-                    if pending <= 0 {
-                        fallback()
+                resolutionGate.resetRemotePayloadChecks(count: payloadTypes.count)
+                @Sendable func finishRemoteChecks() {
+                    if resolutionGate.finishRemotePayloadCheck() {
+                        Task { @MainActor in
+                            fallback()
+                        }
                     }
                 }
                 for payloadType in payloadTypes {
-                    provider.loadDataRepresentation(forTypeIdentifier: payloadType) { data, _ in
+                    sendableProvider.provider.loadDataRepresentation(forTypeIdentifier: payloadType) { data, _ in
                         guard let data,
                               let string = String(data: data, encoding: .utf8)?
                                   .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -782,14 +823,10 @@ struct SFTPPanel: View {
                             return
                         }
                         Self.logger.debug("requestRemotePayloadDownload matched remote path=\(remotePath, privacy: .public) type=\(payloadType, privacy: .public)")
-                        fallbackLock.lock()
-                        if didHandle || remoteHandled || localFileHandled {
-                            fallbackLock.unlock()
+                        if !resolutionGate.markRemotePayloadHandled() {
                             return
                         }
-                        didHandle = true
-                        fallbackLock.unlock()
-                        if !markRemoteHandled() {
+                        if !resolutionGate.markRemoteHandled() {
                             return
                         }
                         Task { @MainActor in

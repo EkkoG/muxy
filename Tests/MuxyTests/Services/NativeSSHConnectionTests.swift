@@ -226,7 +226,7 @@ struct NativeSSHConnectionTests {
 private func hashedHostPattern(host: String) -> String {
     let salt = "known-hosts-salt".data(using: .utf8) ?? Data()
     let hostData = host.data(using: .utf8) ?? Data()
-    let digest = HMAC<SHA1>.authenticationCode(for: hostData, using: SymmetricKey(data: salt))
+    let digest = HMAC<Insecure.SHA1>.authenticationCode(for: hostData, using: SymmetricKey(data: salt))
     let saltText = salt.base64EncodedString()
     let digestText = Data(digest).base64EncodedString()
     return "|1|\(saltText)|\(digestText)"
