@@ -11,6 +11,9 @@ struct MobileSettingsView: View {
     @Bindable private var service = MobileServerService.shared
     @Bindable private var devices = ApprovedDevicesStore.shared
     @State private var deviceToRevoke: ApprovedDevice?
+    @State private var isSelecting = false
+    @State private var selectedDeviceIDs: Set<UUID> = []
+    @State private var showBatchRevokeConfirmation = false
     @State private var portText: String = ""
     @State private var portValidationError: String?
     @State private var showFreePortConfirmation = false
@@ -92,6 +95,7 @@ struct MobileSettingsView: View {
                         .padding(.horizontal, SettingsMetrics.horizontalPadding)
                         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
                 } else {
+                    deviceSelectionActions
                     ForEach(devices.devices) { device in
                         deviceRow(device)
                     }
@@ -110,6 +114,12 @@ struct MobileSettingsView: View {
         }
         .onChange(of: service.isEnabled) { _, _ in
             refreshPairingHosts()
+        }
+        .onChange(of: devices.devices) { _, newValue in
+            selectedDeviceIDs.formIntersection(Set(newValue.map(\.id)))
+            if isSelecting, newValue.isEmpty {
+                exitSelection()
+            }
         }
         .alert(
             "Free port \(String(service.port))?",
@@ -136,6 +146,18 @@ struct MobileSettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text("The device will be disconnected immediately and must request approval again to reconnect.")
+        }
+        .alert(
+            "Revoke \(selectedDeviceIDs.count) \(selectedDeviceIDs.count == 1 ? "device" : "devices")?",
+            isPresented: $showBatchRevokeConfirmation
+        ) {
+            Button("Revoke", role: .destructive) {
+                devices.revoke(deviceIDs: selectedDeviceIDs)
+                exitSelection()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The selected devices will be disconnected immediately and must request approval again to reconnect.")
         }
     }
 
@@ -259,8 +281,80 @@ struct MobileSettingsView: View {
         }
     }
 
+    private var deviceSelectionActions: some View {
+        HStack(spacing: 12) {
+            if isSelecting {
+                Button(allDevicesSelected ? "Deselect All" : "Select All") {
+                    toggleSelectAll()
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+                .foregroundStyle(MuxyTheme.accent)
+
+                Button("Revoke Selected (\(selectedDeviceIDs.count))", role: .destructive) {
+                    showBatchRevokeConfirmation = true
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+                .foregroundStyle(SettingsStyle.destructive)
+                .disabled(selectedDeviceIDs.isEmpty)
+
+                Spacer()
+
+                Button("Done") {
+                    exitSelection()
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+                .foregroundStyle(MuxyTheme.accent)
+            } else {
+                Spacer()
+                Button("Select") {
+                    isSelecting = true
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+                .foregroundStyle(MuxyTheme.accent)
+            }
+        }
+        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+    }
+
+    private var allDevicesSelected: Bool {
+        !devices.devices.isEmpty && selectedDeviceIDs.count == devices.devices.count
+    }
+
+    private func toggleSelectAll() {
+        if allDevicesSelected {
+            selectedDeviceIDs.removeAll()
+        } else {
+            selectedDeviceIDs = Set(devices.devices.map(\.id))
+        }
+    }
+
+    private func exitSelection() {
+        isSelecting = false
+        selectedDeviceIDs.removeAll()
+    }
+
+    private func toggleSelection(_ device: ApprovedDevice) {
+        if selectedDeviceIDs.contains(device.id) {
+            selectedDeviceIDs.remove(device.id)
+        } else {
+            selectedDeviceIDs.insert(device.id)
+        }
+    }
+
     private func deviceRow(_ device: ApprovedDevice) -> some View {
         HStack {
+            if isSelecting {
+                Image(systemName: selectedDeviceIDs.contains(device.id) ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: SettingsMetrics.labelFontSize))
+                    .foregroundStyle(
+                        selectedDeviceIDs.contains(device.id) ? MuxyTheme.accent : SettingsStyle.mutedForeground
+                    )
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(device.name)
                     .font(.system(size: SettingsMetrics.labelFontSize))
@@ -269,15 +363,25 @@ struct MobileSettingsView: View {
                     .foregroundStyle(SettingsStyle.mutedForeground)
             }
             Spacer()
-            Button("Revoke", role: .destructive) {
-                deviceToRevoke = device
+            if !isSelecting {
+                Button("Revoke", role: .destructive) {
+                    deviceToRevoke = device
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: SettingsMetrics.footnoteFontSize))
+                .foregroundStyle(SettingsStyle.destructive)
             }
-            .buttonStyle(.borderless)
-            .font(.system(size: SettingsMetrics.footnoteFontSize))
-            .foregroundStyle(SettingsStyle.destructive)
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard isSelecting else { return }
+            toggleSelection(device)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelecting ? .isButton : [])
+        .accessibilityAddTraits(isSelecting && selectedDeviceIDs.contains(device.id) ? .isSelected : [])
     }
 
     private func lastSeenText(_ device: ApprovedDevice) -> String {
