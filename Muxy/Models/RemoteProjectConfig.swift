@@ -6,4 +6,5 @@ struct RemoteProjectConfig: Codable, Equatable, Hashable {
     var displayName: String
     var icon: String?
     var iconColor: String?
+    var connectionIdentity: RemoteConnectionIdentity?
 }

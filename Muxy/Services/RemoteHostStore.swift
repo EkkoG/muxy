@@ -21,17 +21,20 @@ final class RemoteHostStore {
 
     private(set) var hosts: [RemoteHost] = []
     private let persistence: CodableFileStore<[RemoteHost]>
+    private let sshConfigDiscoverer: SSHConfigHostDiscovering
 
     private static var storageURL: URL {
         MuxyFileStorage.appSupportDirectory().appendingPathComponent("remote-hosts.json")
     }
 
-    init() {
+    init(sshConfigDiscoverer: SSHConfigHostDiscovering = DefaultSSHConfigHostDiscoverer()) {
+        self.sshConfigDiscoverer = sshConfigDiscoverer
         persistence = CodableFileStore(fileURL: Self.storageURL, options: .prettySorted)
         load()
     }
 
-    init(storageURL: URL) {
+    init(storageURL: URL, sshConfigDiscoverer: SSHConfigHostDiscovering = DefaultSSHConfigHostDiscoverer()) {
+        self.sshConfigDiscoverer = sshConfigDiscoverer
         self.persistence = CodableFileStore(fileURL: storageURL, options: .prettySorted)
         load()
     }
@@ -58,6 +61,7 @@ final class RemoteHostStore {
     }
 
     func add(_ host: RemoteHost) {
+        guard !contains(host.connectionIdentity) else { return }
         hosts.append(host)
         save()
     }
@@ -79,6 +83,10 @@ final class RemoteHostStore {
         hosts.first { $0.id == id }
     }
 
+    func find(by identity: RemoteConnectionIdentity) -> RemoteHost? {
+        hosts.first { $0.connectionIdentity == identity }
+    }
+
     func importFromSSHConfig() -> [RemoteHost] {
         let parsed = discoverSSHConfigHosts()
         let hosts = parsed.map {
@@ -93,8 +101,8 @@ final class RemoteHostStore {
         return importHosts(hosts)
     }
 
-    func discoverSSHConfigHosts() -> [SSHConfigParser.ParsedHost] {
-        SSHConfigParser.parse()
+    func discoverSSHConfigHosts() -> [DiscoveredSSHConfigHost] {
+        sshConfigDiscoverer.discoverHosts(configPath: nil)
     }
 
     func exportData() throws -> Data {
@@ -116,19 +124,16 @@ final class RemoteHostStore {
     func importFromData(_ data: Data) throws -> [RemoteHost] {
         let decoder = JSONDecoder()
         do {
-            let hosts = try decoder.decode([RemoteHost].self, from: data)
-            return importHosts(hosts)
+            return importHosts(try decoder.decode([RemoteHost].self, from: data))
         } catch {
-        do {
-            let payload = try decoder.decode([String: [RemoteHost]].self, from: data)
-            guard let hosts = payload["hosts"] else {
+            guard
+                let payload = try? decoder.decode([String: [RemoteHost]].self, from: data),
+                let hosts = payload["hosts"]
+            else {
                 throw RemoteHostStoreError.unsupportedImportFormat
             }
             return importHosts(hosts)
-        } catch {
-            throw RemoteHostStoreError.unsupportedImportFormat
         }
-    }
     }
 
     func ensureControlDir() {
@@ -148,7 +153,7 @@ final class RemoteHostStore {
 
     private func importHosts(_ hosts: [RemoteHost]) -> [RemoteHost] {
         var imported: [RemoteHost] = []
-        for host in hosts where !contains(host) {
+        for host in hosts where !contains(host.connectionIdentity) {
             self.hosts.append(host)
             imported.append(host)
         }
@@ -159,9 +164,25 @@ final class RemoteHostStore {
     }
 
     private func contains(_ host: RemoteHost) -> Bool {
+        contains(host.connectionIdentity)
+    }
+
+    func hasMatch(_ identity: RemoteConnectionIdentity) -> Bool {
+        contains(identity)
+    }
+
+    private func contains(_ identity: RemoteConnectionIdentity) -> Bool {
         self.hosts.contains {
-            $0.host == host.host &&
-            $0.user == host.user
+            $0.connectionIdentity == identity
+        }
+    }
+
+    func hasMatch(host: String, user: String, port: UInt16) -> Bool {
+        let normalized = RemoteConnectionIdentity(host: host, user: user, port: port)
+        return hosts.contains {
+            $0.connectionIdentity.host == normalized.host &&
+            $0.connectionIdentity.user == normalized.user &&
+            $0.connectionIdentity.port == normalized.port
         }
     }
 }

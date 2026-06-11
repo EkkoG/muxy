@@ -25,8 +25,8 @@ final class TabArea: Identifiable {
         self.projectPath = projectPath
         self.remoteConfig = remoteConfig
         let pane: TerminalPaneState
-        if let remoteConfig, let host = RemoteHostStore.shared.find(byID: remoteConfig.hostID) {
-            pane = Self.nativeSSHPane(
+        if let remoteConfig, let host = Self.remoteHost(for: remoteConfig) {
+            pane = Self.sshPane(
                 projectPath: projectPath,
                 host: host,
                 remoteConfig: remoteConfig,
@@ -106,8 +106,8 @@ final class TabArea: Identifiable {
         guard !trimmedCommand.isEmpty else { return }
         let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let tabTitle = title.isEmpty ? Self.commandTitle(trimmedCommand) : title
-        let pane: TerminalPaneState = if let remoteConfig, let host = RemoteHostStore.shared.find(byID: remoteConfig.hostID) {
-            Self.nativeSSHPane(
+        let pane: TerminalPaneState = if let remoteConfig, let host = Self.remoteHost(for: remoteConfig) {
+            Self.sshPane(
                 projectPath: directory ?? projectPath,
                 title: tabTitle,
                 host: host,
@@ -164,17 +164,17 @@ final class TabArea: Identifiable {
         guard let remoteConfig else {
             return TerminalPaneState(projectPath: projectPath)
         }
-        guard let host = RemoteHostStore.shared.find(byID: remoteConfig.hostID) else {
+        guard let host = Self.remoteHost(for: remoteConfig) else {
             return TerminalPaneState(
                 projectPath: projectPath,
                 startupCommand: "echo 'Host not found'",
                 startupCommandInteractive: true
             )
         }
-        return nativeSSHPane(projectPath: projectPath, host: host, remoteConfig: remoteConfig)
+        return sshPane(projectPath: projectPath, host: host, remoteConfig: remoteConfig)
     }
 
-    private static func nativeSSHPane(
+    private static func sshPane(
         projectPath: String,
         title: String = "Terminal",
         host: RemoteHost,
@@ -188,7 +188,7 @@ final class TabArea: Identifiable {
             startupCommand: nil,
             startupCommandInteractive: false,
             closesOnStartupCommandExit: closesOnStartupCommandExit,
-            nativeSSHConfiguration: NativeSSHConnectionConfiguration.make(
+            sshConfiguration: SSHConnectionConfiguration.make(
                 host: host,
                 remoteConfig: remoteConfig,
                 command: command
@@ -197,6 +197,14 @@ final class TabArea: Identifiable {
         pane.remoteHostID = remoteConfig.hostID
         pane.sshStartTime = Date()
         return pane
+    }
+
+    private static func remoteHost(for remoteConfig: RemoteProjectConfig) -> RemoteHost? {
+        if let host = RemoteHostStore.shared.find(byID: remoteConfig.hostID) {
+            return host
+        }
+        guard let identity = remoteConfig.connectionIdentity else { return nil }
+        return RemoteHostStore.shared.find(by: identity)
     }
 
     enum InsertSide { case left, right }

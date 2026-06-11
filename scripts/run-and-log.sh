@@ -27,7 +27,7 @@ fi
 echo "==> Debug PID: $DBG_PID"
 echo "==> Muxy logs (Ctrl+C to stop):"
 log stream \
-  --predicate '(subsystem == "app.muxy" AND (category == "SSHConnection" OR category == "SFTPPanel"))' \
+  --predicate '(subsystem == "app.muxy")' \
   --level debug \
   --process "$DBG_PID"
 

@@ -77,10 +77,12 @@ struct AddRemoteProjectSheet: View {
 
     private func addProject() {
         guard let hostID = selectedHostID else { return }
+        let selectedHost = hosts.first(where: { $0.id == hostID })
         let config = RemoteProjectConfig(
             hostID: hostID,
             remotePath: remotePath,
-            displayName: projectName
+            displayName: projectName,
+            connectionIdentity: selectedHost?.connectionIdentity
         )
         _ = projectStore.addRemote(name: projectName, config: config)
     }

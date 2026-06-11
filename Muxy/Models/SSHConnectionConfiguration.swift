@@ -1,18 +1,14 @@
 import Foundation
+import MuxySSH
 
-enum NativeSSHAuthentication: Equatable {
-    case privateKey(path: String)
-    case password(String)
-}
-
-struct NativeSSHConnectionConfiguration: Equatable {
+struct SSHConnectionConfiguration: Equatable, SSHConnectionConfigurable {
     let hostID: UUID
     let name: String
     let host: String
     let port: Int
     let user: String
     let remotePath: String
-    let authentication: NativeSSHAuthentication?
+    let authentication: SSHAuthentication?
     let command: String?
 
     var remoteExecCommand: String? {
@@ -32,8 +28,8 @@ struct NativeSSHConnectionConfiguration: Equatable {
         host: RemoteHost,
         remoteConfig: RemoteProjectConfig,
         command: String? = nil
-    ) -> NativeSSHConnectionConfiguration {
-        NativeSSHConnectionConfiguration(
+    ) -> SSHConnectionConfiguration {
+        SSHConnectionConfiguration(
             hostID: host.id,
             name: host.name,
             host: host.host,
@@ -45,14 +41,19 @@ struct NativeSSHConnectionConfiguration: Equatable {
         )
     }
 
-    static func authentication(for host: RemoteHost) -> NativeSSHAuthentication? {
+    static func authentication(for host: RemoteHost) -> SSHAuthentication? {
         if let identityFile = host.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
            !identityFile.isEmpty
         {
             return .privateKey(path: identityFile)
         }
         if host.useKeychain,
-           let password = KeychainSSHHelper.getPassword(host: host.host, user: host.user),
+           let password = KeychainSSHHelper.getPassword(
+                host: host.host,
+                user: host.user,
+                port: host.port,
+                keyFingerprint: host.keyFingerprint
+           ),
            !password.isEmpty
         {
             return .password(password)

@@ -9,39 +9,60 @@ import Security
 
 private let logger = Logger(subsystem: "app.muxy", category: "SSHConnection")
 
-struct NativeSSHConnectionCallbacks {
-    let onError: @MainActor (SSHConnectionError) -> Void
-    let onClose: @MainActor () -> Void
-    let onFinished: @MainActor (UUID) -> Void
+public struct SSHConnectionCallbacks {
+    public let onError: @MainActor (SSHConnectionError) -> Void
+    public let onClose: @MainActor () -> Void
+    public let onFinished: @MainActor (UUID) -> Void
+
+    public init(
+        onError: @escaping @MainActor (SSHConnectionError) -> Void,
+        onClose: @escaping @MainActor () -> Void,
+        onFinished: @escaping @MainActor (UUID) -> Void
+    ) {
+        self.onError = onError
+        self.onClose = onClose
+        self.onFinished = onFinished
+    }
 }
 
 @MainActor
-final class SSHConnectionService {
-    static let shared = SSHConnectionService()
+public final class SSHConnectionService {
+    public static let shared = SSHConnectionService()
 
     private let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-    private var connections: [UUID: NativeSSHConnection] = [:]
+    private struct SSHConnectionSession {
+        let id: UUID
+        let connection: SSHConnection
+        func resize(_ size: SSHTerminalSize) {
+            connection.resize(size)
+        }
+    }
+
+    private var connections: [UUID: SSHConnectionSession] = [:]
 
     private init() {}
 
-    func start(
+    public func start(
         paneID: UUID,
-        configuration: NativeSSHConnectionConfiguration,
-        bridge: NativeSSHFileDescriptorBridge,
-        size: NativeSSHTerminalSize,
-        callbacks: NativeSSHConnectionCallbacks
+        configuration: any SSHConnectionConfigurable,
+        bridge: SSHFileDescriptorBridge,
+        size: SSHTerminalSize,
+        callbacks: SSHConnectionCallbacks
     ) {
-        logger.info("Starting native SSH for \(paneID.uuidString)")
-        stop(paneID: paneID)
-        let trackedCallbacks = NativeSSHConnectionCallbacks(
+        logger.info("Starting SSH for \(paneID.uuidString)")
+        let sessionID = UUID()
+        if let existing = connections.removeValue(forKey: paneID) {
+            existing.connection.stop()
+        }
+        let trackedCallbacks = SSHConnectionCallbacks(
             onError: callbacks.onError,
             onClose: callbacks.onClose,
             onFinished: { [weak self] finishedPaneID in
-                self?.remove(paneID: finishedPaneID)
+                self?.remove(paneID: finishedPaneID, sessionID: sessionID)
                 callbacks.onFinished(finishedPaneID)
             }
         )
-        let connection = NativeSSHConnection(
+        let connection = SSHConnection(
             paneID: paneID,
             configuration: configuration,
             bridge: bridge,
@@ -49,29 +70,31 @@ final class SSHConnectionService {
             group: group,
             callbacks: trackedCallbacks
         )
-        connections[paneID] = connection
+        connections[paneID] = SSHConnectionSession(id: sessionID, connection: connection)
         connection.start()
     }
 
-    func resize(paneID: UUID, size: NativeSSHTerminalSize) {
+    public func resize(paneID: UUID, size: SSHTerminalSize) {
         connections[paneID]?.resize(size)
     }
 
-    func stop(paneID: UUID) {
-        logger.info("Stopping native SSH for \(paneID.uuidString)")
-        connections.removeValue(forKey: paneID)?.stop()
+    public func stop(paneID: UUID) {
+        logger.info("Stopping SSH for \(paneID.uuidString)")
+        connections.removeValue(forKey: paneID)?.connection.stop()
     }
 
-    func remove(paneID: UUID) {
-        logger.debug("Removing native SSH connection entry for \(paneID.uuidString)")
+    public func remove(paneID: UUID, sessionID: UUID? = nil) {
+        guard let current = connections[paneID] else { return }
+        guard sessionID == nil || current.id == sessionID else { return }
+        logger.debug("Removing SSH connection entry for \(paneID.uuidString)")
         connections.removeValue(forKey: paneID)
     }
 }
 
-final class NativeSSHConnection {
+final class SSHConnection {
     private let paneID: UUID
-    private let configuration: NativeSSHConnectionConfiguration
-    private let bridge: NativeSSHFileDescriptorBridge
+    private let configuration: any SSHConnectionConfigurable
+    private let bridge: SSHFileDescriptorBridge
     private let group: EventLoopGroup
     private let onError: @MainActor (SSHConnectionError) -> Void
     private let onClose: @MainActor () -> Void
@@ -79,15 +102,16 @@ final class NativeSSHConnection {
 
     private var parentChannel: Channel?
     private var childChannel: Channel?
-    private var stopped = false
+    private let lifecycleQueue = DispatchQueue(label: "app.muxy.ssh.lifecycle", attributes: .concurrent)
+    private var lifecycle: SSHConnectionLifecycle = .idle
 
     init(
         paneID: UUID,
-        configuration: NativeSSHConnectionConfiguration,
-        bridge: NativeSSHFileDescriptorBridge,
-        size: NativeSSHTerminalSize,
+        configuration: any SSHConnectionConfigurable,
+        bridge: SSHFileDescriptorBridge,
+        size: SSHTerminalSize,
         group: EventLoopGroup,
-        callbacks: NativeSSHConnectionCallbacks
+        callbacks: SSHConnectionCallbacks
     ) {
         self.paneID = paneID
         self.configuration = configuration
@@ -99,17 +123,18 @@ final class NativeSSHConnection {
         self.size = size
     }
 
-    private var size: NativeSSHTerminalSize
+    private var size: SSHTerminalSize
 
     func start() {
+        logger.debug("Preparing SSH start for \(self.paneID.uuidString)")
+        guard transition(to: .connecting, allowedFrom: [.idle, .failed, .closed]) else { return }
         do {
-            logger.debug("Preparing SSH auth for \(self.paneID.uuidString)")
-            let authDelegate = try NativeSSHAuthenticationDelegate(
+            let authDelegate = try SSHAuthenticationDelegate(
                 user: configuration.user,
                 authentication: configuration.authentication,
                 paneID: paneID
             )
-            let serverDelegate = NativeSSHServerAuthenticationDelegate(
+            let serverDelegate = SSHServerAuthenticationDelegate(
                 host: configuration.host,
                 port: configuration.port,
                 paneID: paneID
@@ -127,7 +152,7 @@ final class NativeSSHConnection {
                             inboundChildChannelInitializer: nil
                         )
                         try channel.pipeline.syncOperations.addHandler(ssh)
-                        try channel.pipeline.syncOperations.addHandler(NativeSSHErrorHandler(stage: "parent", paneID: self.paneID))
+                        try channel.pipeline.syncOperations.addHandler(SSHErrorHandler(stage: "parent", paneID: self.paneID))
                     }
                 }
                 .channelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
@@ -137,6 +162,10 @@ final class NativeSSHConnection {
                 switch result {
                 case let .success(channel):
                     logger.info("TCP connected for \(self?.paneID.uuidString ?? "unknown")")
+                    guard self?.currentState() == .connecting else {
+                        channel.close(promise: nil)
+                        return
+                    }
                     self?.parentChannel = channel
                     self?.openSession(on: channel)
                 case let .failure(error):
@@ -150,8 +179,9 @@ final class NativeSSHConnection {
         }
     }
 
-    func resize(_ size: NativeSSHTerminalSize) {
+    func resize(_ size: SSHTerminalSize) {
         self.size = size
+        guard currentState() == .running else { return }
         childChannel?.eventLoop.execute { [weak childChannel] in
             childChannel?.triggerUserOutboundEvent(SSHChannelRequestEvent.WindowChangeRequest(
                 terminalCharacterWidth: size.columns,
@@ -163,11 +193,14 @@ final class NativeSSHConnection {
     }
 
     func stop() {
-        stopped = true
-        logger.debug("Closing native SSH channels for \(self.paneID.uuidString)")
-        childChannel?.close(promise: nil)
-        parentChannel?.close(promise: nil)
-        bridge.closeSSHSide()
+        if transition(to: .stopping, allowedFrom: [.connecting, .running]) {
+            logger.debug("Stopping SSH for \(self.paneID.uuidString)")
+            tearDown()
+            _ = transition(to: .closed, allowedFrom: [.stopping])
+            return
+        }
+
+        if currentState() == .stopping { return }
     }
 
     private func openSession(on channel: Channel) {
@@ -178,10 +211,10 @@ final class NativeSSHConnection {
                 logger.debug("SSH child init for \(self.paneID.uuidString)")
                 guard channelType == .session else {
                     logger.error("SSH child channel rejected for \(self.paneID.uuidString)")
-                    return childChannel.eventLoop.makeFailedFuture(NativeSSHConnectionFailure.invalidChannelType)
+                    return childChannel.eventLoop.makeFailedFuture(SSHConnectionFailure.invalidChannelType)
                 }
                 return childChannel.eventLoop.makeCompletedFuture {
-                    let handler = NativeSSHShellHandler(
+                    let handler = SSHShellHandler(
                         inputFD: bridge.sshReadFD,
                         outputFD: bridge.sshWriteFD,
                         command: configuration.remoteExecCommand,
@@ -190,13 +223,17 @@ final class NativeSSHConnection {
                         paneID: self.paneID
                     )
                     try childChannel.pipeline.syncOperations.addHandler(handler)
-                    try childChannel.pipeline.syncOperations.addHandler(NativeSSHErrorHandler(stage: "child", paneID: self.paneID))
+                    try childChannel.pipeline.syncOperations.addHandler(SSHErrorHandler(stage: "child", paneID: self.paneID))
                 }
             }
             return promise.futureResult
         }.whenComplete { [weak self] result in
             switch result {
             case let .success(childChannel):
+                guard self?.transition(to: .running, allowedFrom: [.connecting]) == true else {
+                    childChannel.close(promise: nil)
+                    return
+                }
                 logger.info("SSH session opened for \(self?.paneID.uuidString ?? "unknown")")
                 self?.childChannel = childChannel
                 childChannel.closeFuture.whenComplete { [weak self] _ in
@@ -210,11 +247,9 @@ final class NativeSSHConnection {
     }
 
     private func closeFromRemote() {
-        guard !stopped else { return }
-        stopped = true
+        guard transition(to: .closed, allowedFrom: [.running]) else { return }
         logger.info("SSH connection closed by remote for \(self.paneID.uuidString)")
-        bridge.closeSSHSide()
-        parentChannel?.close(promise: nil)
+        tearDown()
         Task { @MainActor in
             self.onClose()
             self.onFinished(self.paneID)
@@ -222,22 +257,54 @@ final class NativeSSHConnection {
     }
 
     private func fail(_ error: Error) {
-        guard !stopped else { return }
-        stopped = true
+        guard transition(to: .failed, allowedFrom: [.connecting, .running]) else { return }
         let mapped = SSHConnectionErrorMapper.map(error, host: configuration.host)
         logger.error("SSH connection failed for \(self.paneID.uuidString): \(error)")
-        bridge.closeSSHSide()
-        parentChannel?.close(promise: nil)
+        tearDown()
         Task { @MainActor in
             self.onError(mapped)
             self.onFinished(self.paneID)
         }
     }
+
+    private func tearDown(closeBridge: Bool = true) {
+        childChannel?.close(promise: nil)
+        parentChannel?.close(promise: nil)
+        if closeBridge {
+            bridge.closeSSHSide()
+        }
+        childChannel = nil
+        parentChannel = nil
+    }
+
+    private func transition(
+        to nextState: SSHConnectionLifecycle,
+        allowedFrom allowed: Set<SSHConnectionLifecycle>
+    ) -> Bool {
+        lifecycleQueue.sync(flags: .barrier) {
+            guard allowed.contains(lifecycle) else { return false }
+            lifecycle = nextState
+            return true
+        }
+    }
+
+    private func currentState() -> SSHConnectionLifecycle {
+        lifecycleQueue.sync { lifecycle }
+    }
 }
 
-extension NativeSSHConnection: @unchecked Sendable {}
+extension SSHConnection: @unchecked Sendable {}
 
-final class NativeSSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
+private enum SSHConnectionLifecycle {
+    case idle
+    case connecting
+    case running
+    case stopping
+    case failed
+    case closed
+}
+
+final class SSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
     typealias InboundIn = SSHChannelData
     typealias OutboundIn = SSHChannelData
     typealias OutboundOut = SSHChannelData
@@ -246,7 +313,7 @@ final class NativeSSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
     private let outputFD: Int32
     private let command: String?
     private let initialInput: String
-    private let size: NativeSSHTerminalSize
+    private let size: SSHTerminalSize
     private let paneID: UUID
     private let inputQueue = DispatchQueue(label: "app.muxy.ssh.input")
     private var inputSource: DispatchSourceRead?
@@ -256,7 +323,7 @@ final class NativeSSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
         outputFD: Int32,
         command: String?,
         initialInput: String,
-        size: NativeSSHTerminalSize,
+        size: SSHTerminalSize,
         paneID: UUID
     ) {
         self.inputFD = inputFD
@@ -423,12 +490,12 @@ final class NativeSSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
     }
 }
 
-final class NativeSSHAuthenticationDelegate: NIOSSHClientUserAuthenticationDelegate, @unchecked Sendable {
+final class SSHAuthenticationDelegate: NIOSSHClientUserAuthenticationDelegate, @unchecked Sendable {
     private let user: String
-    private var authentication: NativeSSHResolvedAuthentication?
+    private var authentication: SSHResolvedAuthentication?
     private let paneID: UUID
 
-    init(user: String, authentication: NativeSSHAuthentication?, paneID: UUID) throws {
+    init(user: String, authentication: SSHAuthentication?, paneID: UUID) throws {
         self.user = user
         self.paneID = paneID
         self.authentication = try authentication.map(Self.resolve)
@@ -458,29 +525,29 @@ final class NativeSSHAuthenticationDelegate: NIOSSHClientUserAuthenticationDeleg
         }
     }
 
-    private static func resolve(_ authentication: NativeSSHAuthentication) throws -> NativeSSHResolvedAuthentication {
+    private static func resolve(_ authentication: SSHAuthentication) throws -> SSHResolvedAuthentication {
         switch authentication {
         case let .privateKey(path):
-            try .privateKey(NativeSSHPrivateKeyLoader.load(path: path))
+            try .privateKey(SSHPrivateKeyLoader.load(path: path))
         case let .password(password):
             .password(password)
         }
     }
 }
 
-enum NativeSSHResolvedAuthentication {
+enum SSHResolvedAuthentication {
     case privateKey(NIOSSHPrivateKey)
     case password(String)
 }
 
-enum NativeSSHPrivateKeyLoader {
-    static func load(path: String) throws -> NIOSSHPrivateKey {
+public enum SSHPrivateKeyLoader {
+    public static func load(path: String) throws -> NIOSSHPrivateKey {
         let keyPath = (path as NSString).expandingTildeInPath
         let keyData = try Data(contentsOf: URL(fileURLWithPath: keyPath))
         if let text = String(data: keyData, encoding: .utf8),
            text.contains("-----BEGIN OPENSSH PRIVATE KEY-----")
         {
-            return try NativeSSHOpenSSHPrivateKeyParser.parse(text)
+            return try SSHOpenSSHPrivateKeyParser.parse(text)
         }
         var items: CFArray?
         var inputFormat = SecExternalFormat.formatUnknown
@@ -499,18 +566,18 @@ enum NativeSSHPrivateKeyLoader {
             SecItemImport(keyData as CFData, nil, &inputFormat, &itemType, [], pointer, nil, &items)
         }
         guard status == errSecSuccess, let array = items as? [SecKey], let secKey = array.first else {
-            throw NativeSSHConnectionFailure.privateKeyLoadFailed
+            throw SSHConnectionFailure.privateKeyLoadFailed
         }
         guard let rawData = SecKeyCopyExternalRepresentation(secKey, nil) as? Data,
               let ed25519Key = try? Curve25519.Signing.PrivateKey(rawRepresentation: rawData)
         else {
-            throw NativeSSHConnectionFailure.unsupportedKeyType
+            throw SSHConnectionFailure.unsupportedKeyType
         }
         return NIOSSHPrivateKey(ed25519Key: ed25519Key)
     }
 }
 
-final class NativeSSHServerAuthenticationDelegate: NIOSSHClientServerAuthenticationDelegate, @unchecked Sendable {
+final class SSHServerAuthenticationDelegate: NIOSSHClientServerAuthenticationDelegate, @unchecked Sendable {
     private let host: String
     private let port: Int
     private let paneID: UUID
@@ -522,26 +589,26 @@ final class NativeSSHServerAuthenticationDelegate: NIOSSHClientServerAuthenticat
     }
 
     func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
-        switch NativeSSHKnownHosts.validate(
+        switch SSHKnownHosts.validate(
             host: host,
             port: port,
             hostKey: hostKey,
-            knownHosts: NativeSSHKnownHosts.loadDefaultKnownHosts()
+            knownHosts: SSHKnownHosts.loadDefaultKnownHosts()
         ) {
         case .trusted:
             logger.info("SSH host key accepted for \(self.paneID.uuidString)")
             validationCompletePromise.succeed(())
         case .unknown:
             logger.error("SSH host key unknown for \(self.paneID.uuidString)")
-            validationCompletePromise.fail(NativeSSHConnectionFailure.unknownHostKey)
+            validationCompletePromise.fail(SSHConnectionFailure.unknownHostKey)
         case .changed:
             logger.error("SSH host key changed for \(self.paneID.uuidString)")
-            validationCompletePromise.fail(NativeSSHConnectionFailure.hostKeyChanged)
+            validationCompletePromise.fail(SSHConnectionFailure.hostKeyChanged)
         }
     }
 }
 
-final class NativeSSHErrorHandler: ChannelInboundHandler, @unchecked Sendable {
+final class SSHErrorHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = Any
     private let stage: String
     private let paneID: UUID
@@ -558,7 +625,7 @@ final class NativeSSHErrorHandler: ChannelInboundHandler, @unchecked Sendable {
     }
 }
 
-enum NativeSSHConnectionFailure: Error {
+public enum SSHConnectionFailure: Error {
     case hostKeyChanged
     case unknownHostKey
     case invalidChannelType
@@ -568,9 +635,9 @@ enum NativeSSHConnectionFailure: Error {
     case unsupportedKeyType
 }
 
-enum SSHConnectionErrorMapper {
-    static func map(_ error: Error, host: String) -> SSHConnectionError {
-        if let failure = error as? NativeSSHConnectionFailure {
+public enum SSHConnectionErrorMapper {
+    public static func map(_ error: Error, host: String) -> SSHConnectionError {
+        if let failure = error as? SSHConnectionFailure {
             switch failure {
             case .hostKeyChanged:
                 return .hostKeyChanged("The SSH host key for \(host) has changed")
@@ -582,7 +649,7 @@ enum SSHConnectionErrorMapper {
             case .encryptedPrivateKey:
                 return .authFailed("Encrypted SSH private keys are not supported yet. Use an unencrypted key.")
             case .unsupportedKeyType:
-                return .authFailed("Only Ed25519 private keys are supported for native SSH.")
+                return .authFailed("Only Ed25519 private keys are supported for SSH.")
             case .invalidChannelType:
                 return .unknown("Could not open SSH session")
             }

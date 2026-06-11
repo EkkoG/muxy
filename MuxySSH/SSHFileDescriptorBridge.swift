@@ -1,20 +1,26 @@
 import Darwin
 import Foundation
 
-struct NativeSSHTerminalSize: Equatable {
-    let columns: Int
-    let rows: Int
-    let widthPixels: Int
-    let heightPixels: Int
+public struct SSHTerminalSize: Equatable, Sendable {
+    public let columns: Int
+    public let rows: Int
+    public let widthPixels: Int
+    public let heightPixels: Int
+    public static let fallback = SSHTerminalSize(columns: 80, rows: 24, widthPixels: 0, heightPixels: 0)
 
-    static let fallback = NativeSSHTerminalSize(columns: 80, rows: 24, widthPixels: 0, heightPixels: 0)
+    public init(columns: Int, rows: Int, widthPixels: Int, heightPixels: Int) {
+        self.columns = columns
+        self.rows = rows
+        self.widthPixels = widthPixels
+        self.heightPixels = heightPixels
+    }
 }
 
-final class NativeSSHFileDescriptorBridge {
-    let ghosttyReadFD: Int32
-    let ghosttyWriteFD: Int32
-    let sshReadFD: Int32
-    let sshWriteFD: Int32
+public final class SSHFileDescriptorBridge {
+    public let ghosttyReadFD: Int32
+    public let ghosttyWriteFD: Int32
+    public let sshReadFD: Int32
+    public let sshWriteFD: Int32
 
     private var closed = false
 
@@ -30,7 +36,7 @@ final class NativeSSHFileDescriptorBridge {
         self.sshWriteFD = sshWriteFD
     }
 
-    static func make() throws -> NativeSSHFileDescriptorBridge {
+    public static func make() throws -> SSHFileDescriptorBridge {
         var terminalToSSH: [Int32] = [-1, -1]
         var sshToTerminal: [Int32] = [-1, -1]
 
@@ -57,7 +63,7 @@ final class NativeSSHFileDescriptorBridge {
             throw error
         }
 
-        return NativeSSHFileDescriptorBridge(
+        return SSHFileDescriptorBridge(
             ghosttyReadFD: sshToTerminal[0],
             ghosttyWriteFD: terminalToSSH[1],
             sshReadFD: terminalToSSH[0],
@@ -65,14 +71,14 @@ final class NativeSSHFileDescriptorBridge {
         )
     }
 
-    func closeSSHSide() {
+    public func closeSSHSide() {
         guard !closed else { return }
         closed = true
         closeIfOpen(sshReadFD)
         closeIfOpen(sshWriteFD)
     }
 
-    func closeAllBeforeSurfaceCreation() {
+    public func closeAllBeforeSurfaceCreation() {
         guard !closed else { return }
         closed = true
         closeIfOpen(ghosttyReadFD)
@@ -86,7 +92,7 @@ final class NativeSSHFileDescriptorBridge {
     }
 }
 
-extension NativeSSHFileDescriptorBridge: @unchecked Sendable {}
+extension SSHFileDescriptorBridge: @unchecked Sendable {}
 
 private func closeIfOpen(_ fd: Int32) {
     guard fd >= 0 else { return }

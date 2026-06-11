@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import MuxySSH
 
 struct TerminalPane: View {
     let state: TerminalPaneState
@@ -50,7 +51,7 @@ struct TerminalPane: View {
                 areaID: areaID,
                 onFocus: onFocus,
                 onProcessExit: {
-                    if state.remoteHostID != nil, state.nativeSSHConfiguration == nil, let start = state.sshStartTime {
+                    if state.remoteHostID != nil, state.sshConfiguration == nil, let start = state.sshStartTime {
                         let elapsed = Date().timeIntervalSince(start)
                         if elapsed < 10 {
                             let host = RemoteHostStore.shared.find(byID: state.remoteHostID ?? UUID())?.host ?? ""
@@ -124,8 +125,8 @@ struct TerminalPane: View {
                 Button("Reconnect") {
                     state.sshError = nil
                     state.sshStartTime = Date()
-                    if state.nativeSSHConfiguration != nil {
-                        TerminalViewRegistry.shared.existingView(for: state.id)?.restartNativeSSH()
+                    if state.sshConfiguration != nil {
+                        TerminalViewRegistry.shared.existingView(for: state.id)?.restartSSH()
                     } else {
                         TerminalViewRegistry.shared.existingView(for: state.id)?.wake()
                     }
@@ -248,7 +249,7 @@ struct TerminalBridge: NSViewRepresentable {
             command: launch.command,
             commandInteractive: launch.interactive,
             closesOnCommandExit: launch.closesOnCommandExit,
-            nativeSSHConfiguration: state.nativeSSHConfiguration
+            sshConfiguration: state.sshConfiguration
         )
         if !state.envVars.isEmpty {
             view.envVars = state.envVars

@@ -5,9 +5,10 @@ import NIOSSH
 import Testing
 
 @testable import Muxy
+import MuxySSH
 
-@Suite("Native SSH connection")
-struct NativeSSHConnectionTests {
+@Suite("SSH connection")
+struct SSHConnectionTests {
     @Test("Private key authentication is selected before keychain password")
     func privateKeyAuthenticationWins() {
         let host = RemoteHost(
@@ -19,14 +20,14 @@ struct NativeSSHConnectionTests {
             useKeychain: true
         )
 
-        #expect(NativeSSHConnectionConfiguration.authentication(for: host) == .privateKey(path: "~/.ssh/id_ed25519"))
+        #expect(SSHConnectionConfiguration.authentication(for: host) == .privateKey(path: "~/.ssh/id_ed25519"))
     }
 
     @Test("Missing authentication returns nil")
     func missingAuthentication() {
         let host = RemoteHost(name: "Prod", host: "example.com", user: "deploy")
 
-        #expect(NativeSSHConnectionConfiguration.authentication(for: host) == nil)
+        #expect(SSHConnectionConfiguration.authentication(for: host) == nil)
     }
 
     @Test("Shell mode sends cd as initial input without explicit command")
@@ -40,7 +41,7 @@ struct NativeSSHConnectionTests {
             iconColor: nil
         )
 
-        let configuration = NativeSSHConnectionConfiguration.make(host: host, remoteConfig: remoteConfig)
+        let configuration = SSHConnectionConfiguration.make(host: host, remoteConfig: remoteConfig)
 
         #expect(configuration.remoteExecCommand == nil)
         #expect(configuration.initialShellInput == "cd '/srv/app path'\n")
@@ -57,7 +58,7 @@ struct NativeSSHConnectionTests {
             iconColor: nil
         )
 
-        let configuration = NativeSSHConnectionConfiguration.make(
+        let configuration = SSHConnectionConfiguration.make(
             host: host,
             remoteConfig: remoteConfig,
             command: "swift test"
@@ -69,7 +70,7 @@ struct NativeSSHConnectionTests {
 
     @Test("FD bridge allocates usable descriptors")
     func fdBridgeAllocatesDescriptors() throws {
-        let bridge = try NativeSSHFileDescriptorBridge.make()
+        let bridge = try SSHFileDescriptorBridge.make()
         defer { bridge.closeAllBeforeSurfaceCreation() }
 
         #expect(bridge.ghosttyReadFD >= 0)
@@ -80,7 +81,7 @@ struct NativeSSHConnectionTests {
 
     @Test("FD bridge connects Ghostty and SSH directions")
     func fdBridgeConnectsDirections() throws {
-        let bridge = try NativeSSHFileDescriptorBridge.make()
+        let bridge = try SSHFileDescriptorBridge.make()
         defer { bridge.closeAllBeforeSurfaceCreation() }
 
         try expectWrite(fd: bridge.ghosttyWriteFD, bytes: [0x61, 0x62])
@@ -92,22 +93,22 @@ struct NativeSSHConnectionTests {
 
     @Test("Error mapper handles auth and network failures")
     func errorMapper() {
-        if case .hostKeyChanged = SSHConnectionErrorMapper.map(NativeSSHConnectionFailure.hostKeyChanged, host: "example.com") {
+        if case .hostKeyChanged = SSHConnectionErrorMapper.map(SSHConnectionFailure.hostKeyChanged, host: "example.com") {
         } else {
             Issue.record("Host key changes should map to host-key changed")
         }
 
-        if case .authFailed = SSHConnectionErrorMapper.map(NativeSSHConnectionFailure.unsupportedKeyType, host: "example.com") {
+        if case .authFailed = SSHConnectionErrorMapper.map(SSHConnectionFailure.unsupportedKeyType, host: "example.com") {
         } else {
             Issue.record("Unsupported key type should map to auth failure")
         }
 
-        if case .unknownHostKey("example.com") = SSHConnectionErrorMapper.map(NativeSSHConnectionFailure.unknownHostKey, host: "example.com") {
+        if case .unknownHostKey("example.com") = SSHConnectionErrorMapper.map(SSHConnectionFailure.unknownHostKey, host: "example.com") {
         } else {
             Issue.record("Unknown host key should map to unknown-host-key error")
         }
 
-        if case .authFailed = SSHConnectionErrorMapper.map(NativeSSHConnectionFailure.encryptedPrivateKey, host: "example.com") {
+        if case .authFailed = SSHConnectionErrorMapper.map(SSHConnectionFailure.encryptedPrivateKey, host: "example.com") {
         } else {
             Issue.record("Encrypted key should map to auth failure")
         }
@@ -138,13 +139,13 @@ struct NativeSSHConnectionTests {
         [example.net]:2222 \(secondKeyLine)
         """
 
-        #expect(NativeSSHKnownHosts.validate(host: "example.com", port: 22, hostKey: firstKey, knownHosts: knownHosts) == .trusted)
-        #expect(NativeSSHKnownHosts.validate(host: "example.com", port: 22, hostKey: secondKey, knownHosts: knownHosts) == .changed)
-        #expect(NativeSSHKnownHosts.validate(host: "missing.example", port: 22, hostKey: firstKey, knownHosts: knownHosts) == .unknown)
-        #expect(NativeSSHKnownHosts.validate(host: "example.net", port: 2222, hostKey: secondKey, knownHosts: knownHosts) == .trusted)
-        #expect(NativeSSHKnownHosts.validate(host: "api.example.com", port: 22, hostKey: firstKey, knownHosts: "*.example.com \(firstKeyLine)") == .trusted)
+        #expect(SSHKnownHosts.validate(host: "example.com", port: 22, hostKey: firstKey, knownHosts: knownHosts) == .trusted)
+        #expect(SSHKnownHosts.validate(host: "example.com", port: 22, hostKey: secondKey, knownHosts: knownHosts) == .changed)
+        #expect(SSHKnownHosts.validate(host: "missing.example", port: 22, hostKey: firstKey, knownHosts: knownHosts) == .unknown)
+        #expect(SSHKnownHosts.validate(host: "example.net", port: 2222, hostKey: secondKey, knownHosts: knownHosts) == .trusted)
+        #expect(SSHKnownHosts.validate(host: "api.example.com", port: 22, hostKey: firstKey, knownHosts: "*.example.com \(firstKeyLine)") == .trusted)
         #expect(
-            NativeSSHKnownHosts.validate(
+            SSHKnownHosts.validate(
                 host: "hashed.example.com",
                 port: 22,
                 hostKey: firstKey,
@@ -162,7 +163,7 @@ struct NativeSSHConnectionTests {
         try keyText.write(to: fileURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
-        _ = try NativeSSHPrivateKeyLoader.load(path: fileURL.path)
+        _ = try SSHPrivateKeyLoader.load(path: fileURL.path)
     }
 
     private func openSSHPrivateKey(privateKey: Curve25519.Signing.PrivateKey) -> String {

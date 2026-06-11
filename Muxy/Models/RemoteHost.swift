@@ -7,6 +7,7 @@ struct RemoteHost: Identifiable, Codable, Hashable {
     var port: UInt16
     var user: String
     var identityFile: String?
+    var keyFingerprint: String?
     var useKeychain: Bool
     var additionalArgs: [String]
     var createdAt: Date
@@ -19,6 +20,7 @@ struct RemoteHost: Identifiable, Codable, Hashable {
         port: UInt16 = 22,
         user: String,
         identityFile: String? = nil,
+        keyFingerprint: String? = nil,
         useKeychain: Bool = false,
         additionalArgs: [String] = []
     ) {
@@ -28,10 +30,15 @@ struct RemoteHost: Identifiable, Codable, Hashable {
         self.port = port
         self.user = user
         self.identityFile = identityFile
+        self.keyFingerprint = keyFingerprint
         self.useKeychain = useKeychain
         self.additionalArgs = additionalArgs
         self.createdAt = Date()
         self.updatedAt = Date()
+    }
+
+    var connectionIdentity: RemoteConnectionIdentity {
+        RemoteConnectionIdentity(host: host, user: user, port: port, keyFingerprint: keyFingerprint)
     }
 
     var displaySummary: String {
@@ -48,8 +55,15 @@ extension RemoteHost {
 
     func controlPath() -> String {
         let escaped = "\(user)@\(host):\(port)"
+            .lowercased()
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: ":", with: "_")
+        if let keyFingerprint, !keyFingerprint.isEmpty {
+            let escapedFingerprint = keyFingerprint
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: ":", with: "_")
+            return "\(Self.controlPathBase())/\(escaped)#\(escapedFingerprint)"
+        }
         return "\(Self.controlPathBase())/\(escaped)"
     }
 

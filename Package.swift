@@ -50,10 +50,10 @@ let package = Package(
                 "GhosttyKit",
                 "MuxyShared",
                 "MuxyServer",
+                "MuxySSH",
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
-                .product(name: "NIOSSH", package: "swift-nio-ssh"),
             ],
             path: "Muxy",
             exclude: ["Info.plist", "Muxy.entitlements"],
@@ -85,6 +85,13 @@ let package = Package(
                 .linkedLibrary("c++"),
             ]
         ),
+        .target(
+            name: "MuxySSH",
+            dependencies: [
+                .product(name: "NIOSSH", package: "swift-nio-ssh"),
+            ],
+            path: "MuxySSH"
+        ),
         .testTarget(
             name: "MuxyTests",
             dependencies: [
@@ -92,6 +99,7 @@ let package = Package(
                 "MuxyShared",
                 "MuxyServer",
                 "MuxyExtensionHost",
+                "MuxySSH",
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "NIOSSH", package: "swift-nio-ssh"),
             ],

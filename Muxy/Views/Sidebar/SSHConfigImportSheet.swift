@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SSHConfigImportSheet: View {
     @Binding var isPresented: Bool
-    @State private var discoveredHosts: [SSHConfigParser.ParsedHost] = []
+    @State private var discoveredHosts: [DiscoveredSSHConfigHost] = []
     @State private var selectedHosts: Set<String> = []
     @State private var isLoading = true
 
@@ -102,12 +102,13 @@ struct SSHConfigImportSheet: View {
     private func importSelected() {
         for parsed in discoveredHosts where selectedHosts.contains(parsed.name) {
             let store = RemoteHostStore.shared
-            guard !store.hosts.contains(where: { $0.host == parsed.hostName }) else { continue }
+            let user = parsed.user ?? NSUserName()
+            guard !store.hasMatch(host: parsed.hostName, user: user, port: parsed.port) else { continue }
             let host = RemoteHost(
                 name: parsed.name,
                 host: parsed.hostName,
                 port: parsed.port,
-                user: parsed.user ?? NSUserName(),
+                user: user,
                 identityFile: parsed.identityFile
             )
             store.add(host)

@@ -3,19 +3,19 @@ import Darwin
 import Foundation
 import NIOSSH
 
-enum NativeSSHHostKeyValidation: Equatable {
+public enum SSHHostKeyValidation: Equatable {
     case trusted
     case changed
     case unknown
 }
 
-enum NativeSSHKnownHosts {
-    static func validate(
+public enum SSHKnownHosts {
+    public static func validate(
         host: String,
         port: Int,
         hostKey: NIOSSHPublicKey,
         knownHosts: String
-    ) -> NativeSSHHostKeyValidation {
+    ) -> SSHHostKeyValidation {
         let matchedKeys = knownHosts
             .split(separator: "\n", omittingEmptySubsequences: false)
             .compactMap { entry(line: String($0), host: host, port: port) }
@@ -24,7 +24,7 @@ enum NativeSSHKnownHosts {
         return matchedKeys.contains(hostKey) ? .trusted : .changed
     }
 
-    static func loadDefaultKnownHosts() -> String {
+    public static func loadDefaultKnownHosts() -> String {
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".ssh/known_hosts")
         return (try? String(contentsOf: url, encoding: .utf8)) ?? ""

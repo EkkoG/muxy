@@ -1,35 +1,5 @@
 import Foundation
-
-enum SSHConnectionError {
-    case refused(String)
-    case authFailed(String)
-    case hostKeyChanged(String)
-    case unknownHostKey(String)
-    case timeout(String)
-    case unknown(String)
-
-    var title: String {
-        switch self {
-        case .refused: "Connection Refused"
-        case .authFailed: "Authentication Failed"
-        case .hostKeyChanged: "Host Key Changed"
-        case .unknownHostKey: "Unknown Host Key"
-        case .timeout: "Connection Timeout"
-        case .unknown: "Connection Error"
-        }
-    }
-
-    var message: String {
-        switch self {
-        case let .refused(host): "Could not connect to \(host): Connection refused"
-        case let .authFailed(detail): detail
-        case let .hostKeyChanged(detail): detail
-        case let .unknownHostKey(host): "The host key for \(host) is not in known_hosts. Add it to ~/.ssh/known_hosts to connect."
-        case let .timeout(host): "Connection to \(host) timed out"
-        case let .unknown(detail): detail
-        }
-    }
-}
+import MuxySSH
 
 struct TerminalPaneLaunch: Equatable {
     let command: String?
@@ -48,7 +18,7 @@ final class TerminalPaneState: Identifiable {
     let startupCommandInteractive: Bool
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
-    var nativeSSHConfiguration: NativeSSHConnectionConfiguration?
+    var sshConfiguration: SSHConnectionConfiguration?
     var envVars: [(key: String, value: String)] = []
     var remoteHostID: UUID?
     var sshError: SSHConnectionError?
@@ -66,7 +36,7 @@ final class TerminalPaneState: Identifiable {
         startupCommandInteractive: Bool = false,
         closesOnStartupCommandExit: Bool = true,
         externalEditorFilePath: String? = nil,
-        nativeSSHConfiguration: NativeSSHConnectionConfiguration? = nil
+        sshConfiguration: SSHConnectionConfiguration? = nil
     ) {
         self.id = id
         self.projectPath = projectPath
@@ -76,11 +46,11 @@ final class TerminalPaneState: Identifiable {
         self.startupCommandInteractive = startupCommandInteractive
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.externalEditorFilePath = externalEditorFilePath
-        self.nativeSSHConfiguration = nativeSSHConfiguration
+        self.sshConfiguration = sshConfiguration
     }
 
     func consumeRestoredLaunch() -> TerminalPaneLaunch {
-        if nativeSSHConfiguration != nil {
+        if sshConfiguration != nil {
             return TerminalPaneLaunch(command: nil, interactive: false, closesOnCommandExit: false)
         }
         return TerminalPaneLaunch(

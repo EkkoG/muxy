@@ -1,4 +1,5 @@
 import SwiftUI
+import MuxySSH
 
 struct AddRemoteHostSheet: View {
     @Binding var isPresented: Bool
@@ -123,13 +124,53 @@ struct AddRemoteHostSheet: View {
             port: portValue,
             user: user,
             identityFile: identityFile.isEmpty ? nil : (identityFile as NSString).expandingTildeInPath,
+            keyFingerprint: editingHost?.keyFingerprint,
             useKeychain: useKeychain
         )
+        let previousPassword: String? = {
+            guard let existingHost = editingHost, existingHost.useKeychain else { return nil }
+            return KeychainSSHHelper.getPassword(
+                host: existingHost.host,
+                user: existingHost.user,
+                port: existingHost.port,
+                keyFingerprint: existingHost.keyFingerprint
+            )
+        }()
+        let shouldPersistPassword = !password.isEmpty
+        let persistedPassword = shouldPersistPassword ? password : previousPassword
+        let identityChanged = {
+            guard let existingHost = editingHost else { return false }
+            return existingHost.connectionIdentity != newHost.connectionIdentity
+        }()
 
-        if useKeychain, !password.isEmpty {
-            KeychainSSHHelper.storePassword(password, host: host, user: user)
-        } else if !useKeychain {
-            KeychainSSHHelper.deletePassword(host: host, user: user)
+        if let existingHost = editingHost, existingHost.useKeychain, (identityChanged || !useKeychain) {
+            KeychainSSHHelper.deletePassword(
+                host: existingHost.host,
+                user: existingHost.user,
+                port: existingHost.port,
+                keyFingerprint: existingHost.keyFingerprint
+            )
+        }
+
+        if useKeychain, let passwordToStore = persistedPassword {
+            if !passwordToStore.isEmpty {
+                KeychainSSHHelper.storePassword(
+                    passwordToStore,
+                    host: host,
+                    user: user,
+                    port: portValue,
+                    keyFingerprint: newHost.keyFingerprint
+                )
+            }
+        }
+
+        if !useKeychain {
+            KeychainSSHHelper.deletePassword(
+                host: host,
+                user: user,
+                port: portValue,
+                keyFingerprint: newHost.keyFingerprint
+            )
         }
 
         if editingHost != nil {

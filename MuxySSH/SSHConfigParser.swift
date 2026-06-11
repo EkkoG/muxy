@@ -1,15 +1,23 @@
 import Foundation
 
-enum SSHConfigParser {
-    struct ParsedHost {
-        let name: String
-        let hostName: String
-        let user: String?
-        let port: UInt16
-        let identityFile: String?
+public enum SSHConfigParser {
+    public struct ParsedHost {
+        public let name: String
+        public let hostName: String
+        public let user: String?
+        public let port: UInt16
+        public let identityFile: String?
+
+        public init(name: String, hostName: String, user: String?, port: UInt16, identityFile: String?) {
+            self.name = name
+            self.hostName = hostName
+            self.user = user
+            self.port = port
+            self.identityFile = identityFile
+        }
     }
 
-    static func parse(configPath: String? = nil) -> [ParsedHost] {
+    public static func parse(configPath: String? = nil) -> [ParsedHost] {
         let path = configPath ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".ssh/config").path
 

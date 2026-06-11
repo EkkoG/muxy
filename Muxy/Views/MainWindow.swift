@@ -361,7 +361,7 @@ struct MainWindow: View {
                     richInputVisible: richInputPanelVisible,
                     richInputFontSize: $richInputFontSize,
                     extensionOutputVisible: extensionConsoleBinding,
-                    onToggleSFTPPanel: activeTerminalPane?.nativeSSHConfiguration == nil
+                    onToggleSFTPPanel: activeTerminalPane?.sshConfiguration == nil
                         ? nil
                         : { toggleSFTPPanel() },
                     onTriggerExtensionCommand: { binding in
@@ -621,7 +621,8 @@ struct MainWindow: View {
             let config = RemoteProjectConfig(
                 hostID: item.hostID,
                 remotePath: "~",
-                displayName: item.name
+                displayName: item.name,
+                connectionIdentity: RemoteHostStore.shared.find(byID: item.hostID)?.connectionIdentity
             )
             let project = projectStore.addRemote(name: item.name, config: config)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -1168,7 +1169,7 @@ struct MainWindow: View {
     }
 
     private func toggleSFTPPanel() {
-        guard activeTerminalPane?.nativeSSHConfiguration != nil else { return }
+        guard activeTerminalPane?.sshConfiguration != nil else { return }
         guard !sftpPanelVisible else {
             panelHost.close(BuiltinPanel.sftp)
             return

@@ -2,44 +2,44 @@ import CryptoKit
 import Foundation
 import NIOSSH
 
-enum NativeSSHOpenSSHPrivateKeyParser {
+enum SSHOpenSSHPrivateKeyParser {
     static func parse(_ text: String) throws -> NIOSSHPrivateKey {
         let body = text
             .split(separator: "\n")
             .filter { !$0.hasPrefix("-----") }
             .joined()
         guard let data = Data(base64Encoded: body) else {
-            throw NativeSSHConnectionFailure.privateKeyLoadFailed
+            throw SSHConnectionFailure.privateKeyLoadFailed
         }
 
-        var reader = NativeSSHBinaryReader(data: data)
+        var reader = SSHBinaryReader(data: data)
         guard try reader.readBytes(count: 15) == Array("openssh-key-v1\0".utf8) else {
-            throw NativeSSHConnectionFailure.privateKeyLoadFailed
+            throw SSHConnectionFailure.privateKeyLoadFailed
         }
 
         let cipherName = try reader.readString()
         let kdfName = try reader.readString()
         _ = try reader.readString()
         guard cipherName == "none", kdfName == "none" else {
-            throw NativeSSHConnectionFailure.encryptedPrivateKey
+            throw SSHConnectionFailure.encryptedPrivateKey
         }
         guard try reader.readUInt32() == 1 else {
-            throw NativeSSHConnectionFailure.unsupportedPrivateKey
+            throw SSHConnectionFailure.unsupportedPrivateKey
         }
         _ = try reader.readDataString()
 
-        var privateReader = try NativeSSHBinaryReader(data: reader.readDataString())
+        var privateReader = try SSHBinaryReader(data: reader.readDataString())
         let check = try privateReader.readUInt32()
         guard try privateReader.readUInt32() == check else {
-            throw NativeSSHConnectionFailure.privateKeyLoadFailed
+            throw SSHConnectionFailure.privateKeyLoadFailed
         }
         guard try privateReader.readString() == "ssh-ed25519" else {
-            throw NativeSSHConnectionFailure.unsupportedKeyType
+            throw SSHConnectionFailure.unsupportedKeyType
         }
         _ = try privateReader.readDataString()
         let privateAndPublic = try privateReader.readBytesString()
         guard privateAndPublic.count == 64 else {
-            throw NativeSSHConnectionFailure.privateKeyLoadFailed
+            throw SSHConnectionFailure.privateKeyLoadFailed
         }
 
         let privateKeyBytes = privateAndPublic.prefix(32)
@@ -47,7 +47,7 @@ enum NativeSSHOpenSSHPrivateKeyParser {
     }
 }
 
-struct NativeSSHBinaryReader {
+struct SSHBinaryReader {
     private let data: Data
     private var offset = 0
 
@@ -63,7 +63,7 @@ struct NativeSSHBinaryReader {
     mutating func readString() throws -> String {
         let data = try readDataString()
         guard let string = String(data: data, encoding: .utf8) else {
-            throw NativeSSHConnectionFailure.privateKeyLoadFailed
+            throw SSHConnectionFailure.privateKeyLoadFailed
         }
         return string
     }
@@ -80,7 +80,7 @@ struct NativeSSHBinaryReader {
 
     mutating func readBytes(count: Int) throws -> [UInt8] {
         guard count > -1, offset + count <= data.count else {
-            throw NativeSSHConnectionFailure.privateKeyLoadFailed
+            throw SSHConnectionFailure.privateKeyLoadFailed
         }
         defer { offset += count }
         return Array(data[offset ..< offset + count])

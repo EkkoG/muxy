@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import GhosttyKit
+import MuxySSH
 import MuxyShared
 import UniformTypeIdentifiers
 
@@ -11,7 +12,7 @@ final class GhosttyTerminalNSView: NSView {
     private let command: String?
     private let commandInteractive: Bool
     private let commandClosesOnExit: Bool
-    var nativeSSHConfiguration: NativeSSHConnectionConfiguration?
+    var sshConfiguration: SSHConnectionConfiguration?
     var envVars: [(key: String, value: String)] = []
     var onTitleChange: ((String) -> Void)?
     var onWorkingDirectoryChange: ((String) -> Void)?
@@ -71,13 +72,13 @@ final class GhosttyTerminalNSView: NSView {
         command: String? = nil,
         commandInteractive: Bool = false,
         closesOnCommandExit: Bool = true,
-        nativeSSHConfiguration: NativeSSHConnectionConfiguration? = nil
+        sshConfiguration: SSHConnectionConfiguration? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
         commandClosesOnExit = closesOnCommandExit
-        self.nativeSSHConfiguration = nativeSSHConfiguration
+        self.sshConfiguration = sshConfiguration
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -143,22 +144,22 @@ final class GhosttyTerminalNSView: NSView {
         surfaceCStringPointers.append(workingDirectoryPointer)
         surfaceConfig.working_directory = UnsafePointer(workingDirectoryPointer)
 
-        let nativeSSHBridge: NativeSSHFileDescriptorBridge?
-        if nativeSSHConfiguration != nil {
+        let sshBridge: SSHFileDescriptorBridge?
+        if sshConfiguration != nil {
             do {
-                nativeSSHBridge = try NativeSSHFileDescriptorBridge.make()
-                surfaceConfig.custom_read_fd = nativeSSHBridge?.ghosttyReadFD ?? -1
-                surfaceConfig.custom_write_fd = nativeSSHBridge?.ghosttyWriteFD ?? -1
+                sshBridge = try SSHFileDescriptorBridge.make()
+                surfaceConfig.custom_read_fd = sshBridge?.ghosttyReadFD ?? -1
+                surfaceConfig.custom_write_fd = sshBridge?.ghosttyWriteFD ?? -1
             } catch {
                 onSSHError?(.unknown(error.localizedDescription))
                 return
             }
         } else {
-            nativeSSHBridge = nil
+            sshBridge = nil
         }
 
         if let command = launchCommand,
-           nativeSSHConfiguration == nil,
+           sshConfiguration == nil,
            let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
                interactive: commandInteractive,
                keepsShellOpen: !commandClosesOnExit
@@ -190,7 +191,7 @@ final class GhosttyTerminalNSView: NSView {
         surface = ghostty_surface_new(app, &surfaceConfig)
 
         if surface == nil {
-            nativeSSHBridge?.closeAllBeforeSurfaceCreation()
+            sshBridge?.closeAllBeforeSurfaceCreation()
             cleanupSurfaceConfigPointers()
         }
 
@@ -221,13 +222,13 @@ final class GhosttyTerminalNSView: NSView {
 
         if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
             RemoteTerminalStreamer.shared.attach(paneID: paneID, surface: surface)
-            if let nativeSSHConfiguration, let nativeSSHBridge {
+            if let sshConfiguration, let sshBridge {
                 SSHConnectionService.shared.start(
                     paneID: paneID,
-                    configuration: nativeSSHConfiguration,
-                    bridge: nativeSSHBridge,
+                    configuration: sshConfiguration,
+                    bridge: sshBridge,
                     size: currentTerminalSize(),
-                    callbacks: NativeSSHConnectionCallbacks(
+                    callbacks: SSHConnectionCallbacks(
                         onError: { [weak self] error in
                             self?.onSSHError?(error)
                         },
@@ -247,10 +248,10 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func destroySurface() {
+        if let paneID = TerminalViewRegistry.shared.paneID(for: self), sshConfiguration != nil {
+            SSHConnectionService.shared.stop(paneID: paneID)
+        }
         if let surface {
-            if let paneID = TerminalViewRegistry.shared.paneID(for: self), nativeSSHConfiguration != nil {
-                SSHConnectionService.shared.stop(paneID: paneID)
-            }
             if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
                 RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: surface)
             }
@@ -301,10 +302,9 @@ final class GhosttyTerminalNSView: NSView {
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         occlusionObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         delayedResizeWorkItem?.cancel()
-        if let surface {
-            ghostty_surface_free(surface)
+        MainActor.assumeIsolated {
+            destroySurface()
         }
-        cleanupSurfaceConfigPointers()
     }
 
     nonisolated private func cleanupSurfaceConfigPointers() {
@@ -417,8 +417,8 @@ final class GhosttyTerminalNSView: NSView {
         applyOcclusionState()
     }
 
-    func restartNativeSSH() {
-        guard nativeSSHConfiguration != nil else { return }
+    func restartSSH() {
+        guard sshConfiguration != nil else { return }
         processExitHandled = false
         destroySurface()
         createSurface()
@@ -450,7 +450,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func isTerminalIdle() -> Bool {
-        if nativeSSHConfiguration != nil { return false }
+        if sshConfiguration != nil { return false }
         guard let surface else { return true }
         if ghostty_surface_needs_confirm_quit(surface) { return false }
         return !isAlternateScreenActive(surface: surface)
@@ -473,7 +473,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private var isEligibleForOffline: Bool {
-        nativeSSHConfiguration == nil &&
+        sshConfiguration == nil &&
             surface != nil && !keepsAwake && offlineInvisibleAt != nil
             && !isOfflineBlockedByRemote && isTerminalIdle()
     }
@@ -559,7 +559,7 @@ final class GhosttyTerminalNSView: NSView {
         }
 
         ghostty_surface_set_size(surface, backingSize.width, backingSize.height)
-        notifyNativeSSHResize()
+        notifySSHResize()
     }
 
     func remoteOwnershipDidChange() {
@@ -582,13 +582,13 @@ final class GhosttyTerminalNSView: NSView {
         return (UInt32(width), UInt32(height))
     }
 
-    private func currentTerminalSize() -> NativeSSHTerminalSize {
+    private func currentTerminalSize() -> SSHTerminalSize {
         guard let surface else { return .fallback }
         let size = ghostty_surface_size(surface)
         let columns = Int(size.columns)
         let rows = Int(size.rows)
         guard columns > 0, rows > 0 else { return .fallback }
-        return NativeSSHTerminalSize(
+        return SSHTerminalSize(
             columns: columns,
             rows: rows,
             widthPixels: Int(size.width_px),
@@ -596,8 +596,8 @@ final class GhosttyTerminalNSView: NSView {
         )
     }
 
-    private func notifyNativeSSHResize() {
-        guard nativeSSHConfiguration != nil,
+    private func notifySSHResize() {
+        guard sshConfiguration != nil,
               let paneID = TerminalViewRegistry.shared.paneID(for: self)
         else { return }
         SSHConnectionService.shared.resize(paneID: paneID, size: currentTerminalSize())
@@ -618,7 +618,7 @@ final class GhosttyTerminalNSView: NSView {
     private static let systemShortcutKeys: Set<String> = ["q", "h", "m", ","]
 
     func needsConfirmQuit() -> Bool {
-        if nativeSSHConfiguration != nil { return true }
+        if sshConfiguration != nil { return true }
         guard let surface else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }
